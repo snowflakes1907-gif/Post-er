@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="POST-ER 모니터" />
 <title>POST-ER · 모니터</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.15.2/mqtt.min.js"></script>
 <style>
 @font-face{
     font-family:'HakgyoansimBareondotum';
@@ -46,6 +47,14 @@ body{
   position:fixed; inset:0; z-index:60; pointer-events:none; opacity:.06; mix-blend-mode:multiply;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
 }
+.relay-badge{
+  position:fixed; left:16px; bottom:14px; z-index:70; margin:0; pointer-events:none;
+  font-size:11px; letter-spacing:.02em; padding:6px 12px; border-radius:999px;
+  background:rgba(255,255,255,.70); color:rgba(60,63,56,.55); border:1px solid rgba(60,63,56,.10);
+}
+.relay-badge:empty{ display:none; }
+.relay-badge.fail, .relay-badge.lib{ background:rgba(168,80,60,.10); color:#A8503C; border-color:rgba(168,80,60,.22); }
+
 .arcs{ position:fixed; inset:0; z-index:0; width:100%; height:100%; pointer-events:none; }
 .arcs circle{ fill:none; stroke:rgba(60,63,56,.055); stroke-width:1; vector-effect:non-scaling-stroke; }
 
@@ -124,6 +133,7 @@ body{
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
+<p class="relay-badge" id="relayBadge"></p>
 <svg class="arcs" viewBox="0 0 1456 819" preserveAspectRatio="none" aria-hidden="true">
   <circle cx="-120" cy="-90" r="520" /><circle cx="1560" cy="900" r="600" /><circle cx="240" cy="960" r="430" />
 </svg>
@@ -168,11 +178,50 @@ const GALLERY_KEY  = 'posterGallery';
 let bc = null;
 try { bc = new BroadcastChannel(CHANNEL_NAME); } catch(e){ bc = null; }
 
+/* ── 기기 사이 중계 ─────────────────────────────────────
+   아이패드와 이 모니터가 서로 다른 기기여도 연결되게 해주는 무료 공개 중계소.
+   아이패드 쪽 ROOM 값과 똑같아야 한다.
+   주소 뒤에 ?room=이름 을 붙이면 그 값이 우선한다. */
+const ROOM = (new URLSearchParams(location.search).get('room') || 'poster-snowflakes-1907');
+const RELAY_URL = 'wss://broker.emqx.io:8084/mqtt';
+const TOPIC = 'post-er/' + ROOM;
+
+let relay = null;
+function setBadge(state){
+  const el = document.getElementById('relayBadge');
+  if (!el) return;
+  el.textContent = {
+    ok:   '아이패드 연결 대기 중 · ' + ROOM,
+    wait: '중계 서버에 연결하는 중…',
+    fail: '중계 연결 실패 · 인터넷을 확인하세요',
+    lib:  '중계 서버를 불러오지 못했어요'
+  }[state] || '';
+  el.className = 'relay-badge ' + state;
+}
+function connectRelay(){
+  if (typeof mqtt === 'undefined'){ setBadge('lib'); return; }
+  setBadge('wait');
+  try{
+    relay = mqtt.connect(RELAY_URL, {
+      clientId: 'monitor_' + Math.random().toString(16).slice(2),
+      reconnectPeriod: 4000, connectTimeout: 10000, clean: true, keepalive: 30
+    });
+    relay.on('connect', () => { setBadge('ok'); relay.subscribe(TOPIC); });
+    relay.on('message', (t, payload) => {
+      try { handleSignal(JSON.parse(payload.toString())); } catch(e){}
+    });
+    relay.on('reconnect', () => setBadge('wait'));
+    relay.on('close',     () => setBadge('wait'));
+    relay.on('error',     () => setBadge('fail'));
+  } catch(e){ setBadge('fail'); }
+}
+connectRelay();
+
 function loadGallery(){
   try { return JSON.parse(localStorage.getItem(GALLERY_KEY) || '[]'); } catch(e){ return []; }
 }
 function saveGallery(list){
-  let items = list.slice(-60);
+  let items = list.slice(-120);
   while (items.length){
     try { localStorage.setItem(GALLERY_KEY, JSON.stringify(items)); return; }
     catch(e){ items = items.slice(Math.ceil(items.length * 0.25)); }
@@ -190,6 +239,30 @@ function clearGallery(){
   renderGallery();
 }
 
+
+/* 포스터가 많아지면 카드 크기를 줄여서 화면 안에 다 담는다 */
+function fitGalleryCard(n){
+  const grid = document.getElementById('galleryGrid');
+  if (!grid || !n) return 150;
+  const W = grid.clientWidth, H = grid.clientHeight;
+  if (!W || !H) return 150;
+  const gap = 14, ratio = 1350 / 1080, pad = 12;
+  for (let w = 190; w >= 34; w -= 2){
+    const cols = Math.max(1, Math.floor((W + gap) / (w + gap)));
+    const rows = Math.ceil(n / cols);
+    const h = w * ratio + pad;
+    if (rows * (h + gap) - gap <= H) return w;
+  }
+  return 34;
+}
+function applyGalleryFit(n){
+  const grid = document.getElementById('galleryGrid');
+  if (!grid) return;
+  const w = fitGalleryCard(n);
+  grid.style.gridTemplateColumns = 'repeat(auto-fill, ' + w + 'px)';
+  grid.style.justifyContent = 'center';
+}
+
 function renderGallery(freshId){
   const grid  = document.getElementById('galleryGrid');
   const empty = document.getElementById('galleryEmpty');
@@ -198,7 +271,8 @@ function renderGallery(freshId){
   count.textContent = list.length;
   empty.hidden = list.length > 0;
   grid.innerHTML = '';
-  list.slice(0, 60).forEach((it, i) => {
+  applyGalleryFit(Math.min(list.length, 120));
+  list.slice(0, 120).forEach((it, i) => {
     const card = document.createElement('div');
     card.className = 'gallery-card' + (it.id === freshId ? ' fresh' : '');
     card.style.animationDelay = Math.min(i * 22, 700) + 'ms';
@@ -257,52 +331,6 @@ function handleSignal(msg){
   else if (msg.type === 'gallery-updated'){ renderGallery(); }
 }
 
-/* ══════ 기기 간 중계 설정 ══════
-   index.html에 넣은 것과 반드시 똑같은 주소를 붙여넣는다.          */
-const RELAY_URL = 'https://post-er-1b63d-default-rtdb.firebaseio.com';
-
-/* 연결 상태 표시 — 문제가 있을 때만 화면 왼쪽 아래에 나타난다 */
-const relayDot = document.createElement('div');
-relayDot.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:9999;'
-  + 'font:11px/1.4 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;'
-  + 'color:#fff;background:rgba(180,40,40,.85);padding:5px 10px;border-radius:20px;'
-  + 'opacity:0;transition:opacity .4s;pointer-events:none;';
-document.body.appendChild(relayDot);
-function relayStatus(text, show){
-  relayDot.textContent = text;
-  relayDot.style.opacity = show ? '1' : '0';
-}
-
-if (RELAY_URL){
-  let lastTs = 0;
-  relayStatus('연결 중…', true);
-
-  function connectRelay(){
-    const es = new EventSource(RELAY_URL.replace(/\/$/, '') + '/signal.json');
-
-    es.addEventListener('open', () => relayStatus('연결됨', false));
-
-    es.addEventListener('put', (ev) => {
-      try {
-        const payload = JSON.parse(ev.data);
-        const data = payload && payload.data;
-        if (data && data.ts && data.ts !== lastTs){
-          lastTs = data.ts;
-          relayStatus('연결됨', false);
-          handleSignal(data);
-        }
-      } catch(err){}
-    });
-
-    es.addEventListener('error', () => {
-      relayStatus('연결 끊김 — 다시 시도 중', true);
-      es.close();
-      setTimeout(connectRelay, 3000);   /* 끊기면 3초 뒤 자동 재연결 */
-    });
-  }
-  connectRelay();
-}
-
 if (bc) bc.onmessage = (e) => handleSignal(e.data);
 window.addEventListener('storage', (e) => {
   if (e.key === 'posterSignal' && e.newValue){
@@ -317,6 +345,11 @@ window.addEventListener('storage', (e) => {
 setInterval(() => {
   if (document.getElementById('gallery').classList.contains('show')) renderGallery();
 }, 8000);
+
+/* 창 크기가 바뀌면 카드 크기를 다시 맞춘다 */
+window.addEventListener('resize', () => {
+  if (document.getElementById('gallery').classList.contains('show')) renderGallery();
+});
 
 renderGallery();
 
