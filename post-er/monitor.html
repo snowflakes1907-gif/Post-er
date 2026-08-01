@@ -257,6 +257,52 @@ function handleSignal(msg){
   else if (msg.type === 'gallery-updated'){ renderGallery(); }
 }
 
+/* ══════ 기기 간 중계 설정 ══════
+   index.html에 넣은 것과 반드시 똑같은 주소를 붙여넣는다.          */
+const RELAY_URL = 'https://post-er-1b63d-default-rtdb.firebaseio.com';
+
+/* 연결 상태 표시 — 문제가 있을 때만 화면 왼쪽 아래에 나타난다 */
+const relayDot = document.createElement('div');
+relayDot.style.cssText = 'position:fixed;left:14px;bottom:14px;z-index:9999;'
+  + 'font:11px/1.4 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;'
+  + 'color:#fff;background:rgba(180,40,40,.85);padding:5px 10px;border-radius:20px;'
+  + 'opacity:0;transition:opacity .4s;pointer-events:none;';
+document.body.appendChild(relayDot);
+function relayStatus(text, show){
+  relayDot.textContent = text;
+  relayDot.style.opacity = show ? '1' : '0';
+}
+
+if (RELAY_URL){
+  let lastTs = 0;
+  relayStatus('연결 중…', true);
+
+  function connectRelay(){
+    const es = new EventSource(RELAY_URL.replace(/\/$/, '') + '/signal.json');
+
+    es.addEventListener('open', () => relayStatus('연결됨', false));
+
+    es.addEventListener('put', (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        const data = payload && payload.data;
+        if (data && data.ts && data.ts !== lastTs){
+          lastTs = data.ts;
+          relayStatus('연결됨', false);
+          handleSignal(data);
+        }
+      } catch(err){}
+    });
+
+    es.addEventListener('error', () => {
+      relayStatus('연결 끊김 — 다시 시도 중', true);
+      es.close();
+      setTimeout(connectRelay, 3000);   /* 끊기면 3초 뒤 자동 재연결 */
+    });
+  }
+  connectRelay();
+}
+
 if (bc) bc.onmessage = (e) => handleSignal(e.data);
 window.addEventListener('storage', (e) => {
   if (e.key === 'posterSignal' && e.newValue){
