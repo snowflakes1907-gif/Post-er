@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>POST-ER · 실행 버튼</title>
+<style>
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif; background:#EEEEE6; color:#3C3F38;
+    padding:40px 20px; text-align:center;
+  }
+  h1{ font-size:22px; font-weight:700; margin:0 0 8px; }
+  p.sub{ font-size:14px; color:rgba(60,63,56,.6); margin:0 0 44px; }
+  .btn-row{ display:flex; flex-direction:column; gap:18px; width:100%; max-width:420px; }
+  button{
+    font-family:inherit; font-size:18px; font-weight:700; color:#fff; cursor:pointer;
+    padding:22px 20px; border-radius:16px; border:none;
+    background:linear-gradient(135deg,#6F7A6A,#3C3F38);
+    box-shadow:0 10px 24px rgba(60,63,56,.25);
+    transition:transform .15s ease;
+  }
+  button:hover{ transform:translateY(-2px); }
+  button:active{ transform:scale(.98); }
+  button .num{
+    display:inline-block; width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,.25);
+    font-size:14px; line-height:26px; margin-right:10px;
+  }
+  button .label-sub{ display:block; font-size:12px; font-weight:400; opacity:.75; margin-top:5px; }
+  .note{
+    margin-top:48px; font-size:13px; color:rgba(60,63,56,.55); line-height:1.8; max-width:420px;
+    background:rgba(255,255,255,.6); border-radius:12px; padding:16px 20px; border:1px solid rgba(60,63,56,.1);
+  }
+  .status{ margin-top:18px; font-size:13px; color:#6F7A6A; font-weight:700; min-height:18px; }
+</style>
+</head>
+<body>
+  <h1>POST-ER 실행 버튼</h1>
+  <p class="sub">아래 버튼을 순서대로 딱 한 번씩만 눌러주세요</p>
+
+  <div class="btn-row">
+    <button onclick="openPart('part1', 'post-er-part1-intro.html')">
+      <span class="num">1</span>참여자 화면 열기
+      <span class="label-sub">아이패드 쪽 화면에 이 창을 띄워주세요</span>
+    </button>
+    <button onclick="openPart('part3', 'post-er-part3-done.html')">
+      <span class="num">2</span>모니터 화면 열기
+      <span class="label-sub">이 창을 두 번째 모니터로 옮기고 전체화면(F11) 해주세요</span>
+    </button>
+  </div>
+
+  <p class="status" id="status"></p>
+
+  <div class="note">
+    · 이미 열려 있는 창이 있으면 새로 열지 않고 그 창을 그대로 씁니다.<br>
+    · 이 페이지(런처)는 창을 여는 용도일 뿐이니, 열고 나면 그냥 닫아두셔도 됩니다.
+  </div>
+
+<script>
+function openPart(name, path){
+  const w = window.open(path, name);
+  const st = document.getElementById('status');
+  if (w){
+    w.focus();
+    st.textContent = (name === 'part1' ? '참여자 화면' : '모니터 화면') + ' 창을 열었어요 — 이제 그 창을 원하는 모니터로 옮겨주세요.';
+  } else {
+    st.textContent = '창이 안 열렸어요. 브라우저의 팝업 차단을 해제한 뒤 다시 눌러주세요.';
+    st.style.color = '#B4413C';
+  }
+}
+</script>
+</body>
+</html>
